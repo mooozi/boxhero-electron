@@ -2,6 +2,7 @@ import {
   BrowserWindow,
   BrowserWindowConstructorOptions,
   webContents,
+  shell,
 } from "electron";
 import log from "electron-log";
 import path from "path";
@@ -183,6 +184,8 @@ export class BoxHeroWindow extends ViteWindow {
     this.webContents.on("did-finish-load", () => {
       this.initPersistWindowState();
       this.initEvents();
+      // 웹뷰가 로드되면 배경색을 제거
+      this.setBackgroundColor("transparent");
     });
 
     this.once("ready-to-show", () => {
@@ -191,8 +194,10 @@ export class BoxHeroWindow extends ViteWindow {
   }
 
   get navStat() {
-    const canGoBack = this.webviewContents?.canGoBack() ?? false;
-    const canGoForward = this.webviewContents?.canGoForward() ?? false;
+    const canGoBack =
+      this.webviewContents?.navigationHistory.canGoBack() ?? false;
+    const canGoForward =
+      this.webviewContents?.navigationHistory.canGoForward() ?? false;
 
     return {
       canGoBack,
@@ -230,24 +235,45 @@ export class BoxHeroWindow extends ViteWindow {
     if (!this.webviewContents) return;
 
     this.removeAllListeners("app-command").on("app-command", (e, cmd) => {
-      if (cmd === "browser-backward" && this.webviewContents?.canGoBack()) {
-        this.webviewContents.goBack();
-      } else if (
-        cmd === "browser-forward" &&
-        this.webviewContents?.canGoForward()
-      ) {
-        this.webviewContents.goForward();
+      const navHistory = this.webviewContents?.navigationHistory;
+      if (cmd === "browser-backward" && navHistory?.canGoBack()) {
+        navHistory.goBack();
+      } else if (cmd === "browser-forward" && navHistory?.canGoForward()) {
+        navHistory.goForward();
       }
     });
 
     this.removeAllListeners("swipe").on("swipe", (e, direction) => {
-      if (direction === "left" && this.webviewContents?.canGoBack()) {
-        this.webviewContents.goBack();
-      } else if (
-        direction === "right" &&
-        this.webviewContents?.canGoForward()
-      ) {
-        this.webviewContents.goForward();
+      const navHistory = this.webviewContents?.navigationHistory;
+      if (direction === "left" && navHistory?.canGoBack()) {
+        navHistory.goBack();
+      } else if (direction === "right" && navHistory?.canGoForward()) {
+        navHistory.goForward();
+      }
+    });
+
+    const shouldOpenExternally = (url: URL) => {
+      const isAllowedHost =
+        /\.boxhero\.io$/i.test(url.hostname) ||
+        (isDev && url.hostname === "localhost");
+      const hasOpenExternalFlag =
+        url.searchParams.get("open_external") === "true";
+
+      return hasOpenExternalFlag && isAllowedHost;
+    };
+
+    this.webviewContents.setWindowOpenHandler(({ url }) => {
+      try {
+        const parsedURL = new URL(url);
+
+        if (shouldOpenExternally(parsedURL)) {
+          shell.openExternal(url);
+          return { action: "deny" };
+        }
+
+        return { action: "allow" };
+      } catch (_e) {
+        return { action: "allow" };
       }
     });
 
